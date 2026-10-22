@@ -1,0 +1,11 @@
+{
+  "name": "miniledger",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter @miniledger/api dev",
+    "dev:mobile": "pnpm --filter @miniledger/mobile start",
+    "build:api": "pnpm --filter @miniledger/api build",
+    "typecheck:api": "pnpm --filter @miniledger/api typecheck"
+  }
+}
