@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { prisma } from "./config/prisma";
 import authRoutes from "./routes/auth.routes";
+import loanRoutes from "./routes/loan.routes";
 import swaggerUi from "swagger-ui-express";
 import openApiSpec from "./config/openapi";
 
@@ -11,6 +12,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
+app.use("/api", loanRoutes);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
 // API health check
