@@ -1,6 +1,5 @@
-
 import { Router } from "express";
-import { z } from "zod";
+import { success, z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import {
   createLoan,
@@ -8,6 +7,10 @@ import {
   listLoans,
   repayLoan,
 } from "../services/loan.service";
+import { receiptUpload } from "../middleware/receipt-upload.middleware";
+import { prisma } from "../config/prisma";
+import multer from "multer";
+import { promises as fs } from "node:fs";
 
 const router = Router();
 
@@ -141,5 +144,133 @@ router.get("/summary", async (req, res) => {
     });
   }
 });
+
+
+function validateReceiptLoanId(
+  req: import("express").Request,
+  res: import("express").Response,
+  next: import("express").NextFunction
+) {
+  const loanId = req.params.id;
+
+  if (typeof loanId !== "string" || !z.string().uuid().safeParse(loanId).success) {
+    res.status(400).json({
+      success: false,
+      message: "A valid loan ID is required.",
+    });
+    return;
+  }
+
+  next();
+}
+
+function handleReceiptUploadError(
+  req: import("express").Request,
+  res: import("express").Response,
+  next: import("express").NextFunction
+) {
+  receiptUpload.single("receipt")(req, res, (error: unknown) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    if (error instanceof multer.MulterError) {
+      const status = error.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+
+      res.status(status).json({
+        success: false,
+        message:
+          error.code === "LIMIT_FILE_SIZE"
+            ? "Receipt image must not exceed 5 MB."
+            : "Invalid receipt upload.",
+      });
+      return;
+    }
+
+    res.status(400).json({
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Invalid receipt upload.",
+    });
+  });
+}
+
+async function removeUploadedReceipt(filePath?: string) {
+  if (!filePath) return;
+
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+
+    if (code !== "ENOENT") {
+      console.error("Failed to clean up receipt file:", error);
+    }
+  }
+}
+
+// POST /api/loans/:id/receipt
+router.post(
+  "/loans/:id/receipt",
+  validateReceiptLoanId,
+  handleReceiptUploadError,
+  async (req, res) => {
+    if (!req.file) {
+      res.status(400).json({
+        success: false,
+        message: "A receipt image is required.",
+      });
+      return;
+    }
+
+    const loanId = req.params["id"];
+
+    if(typeof loanId !== "string") {
+      res.status(400).json({
+        success: false, message: "A valid loan ID is required.",
+      });
+      return;
+    }
+
+    try {
+      const receiptImagePath = `/uploads/receipts/${req.file.filename}`;
+
+      const result = await prisma.loan.updateMany({
+        where: {
+          id: loanId,
+          userId: req.userId!,
+        },
+        data: { receiptImagePath },
+      });
+
+      if (result.count === 0) {
+        await removeUploadedReceipt(req.file.path);
+
+        res.status(404).json({
+          success: false,
+          message: "Loan not found.",
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: { loanId, receiptImagePath },
+      });
+    } catch (error) {
+      await removeUploadedReceipt(req.file.path);
+
+      console.error("Failed to upload receipt:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "Unable to upload receipt.",
+      });
+    }
+  }
+);
 
 export default router;

@@ -1,4 +1,4 @@
-
+import * as ImagePicker from "expo-image-picker";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -23,6 +23,7 @@ import {
   fetchLoans,
   fetchSummary,
   repayLoan,
+  uploadReceipt,
   type Loan,
   type LoanSummary,
 } from "./src/lib/loans";
@@ -45,13 +46,10 @@ const COLORS = {
 
 function money(value: string | number): string {
   const amount = Number(value);
-  return `₹${(Number.isFinite(amount) ? amount : 0).toLocaleString(
-    "en-IN",
-    {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    },
-  )}`;
+  return `₹${(Number.isFinite(amount) ? amount : 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function dateLabel(value: string): string {
@@ -68,11 +66,7 @@ function dateLabel(value: string): string {
 }
 
 function errorMessage(error: any, fallback: string): string {
-  return (
-    error?.response?.data?.message ??
-    error?.message ??
-    fallback
-  );
+  return error?.response?.data?.message ?? error?.message ?? fallback;
 }
 
 export default function App() {
@@ -83,6 +77,7 @@ export default function App() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploadingReceiptFor, setUploadingReceiptFor] = useState<string | null>(null);
 
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -140,8 +135,8 @@ export default function App() {
     setNotice("");
 
     const normalized = phone.replace(/[\s()-]/g, "");
-    const valid = /^\d{10}$/.test(normalized) ||
-      /^\+[1-9]\d{7,14}$/.test(normalized);
+    const valid =
+      /^\d{10}$/.test(normalized) || /^\+[1-9]\d{7,14}$/.test(normalized);
 
     if (!valid) {
       setError("Enter a valid phone number.");
@@ -234,11 +229,11 @@ export default function App() {
 
     const cleanName = friendName.trim();
     const parsedAmount = Number(amount);
-    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDate) &&
+    const validDate =
+      /^\d{4}-\d{2}-\d{2}$/.test(dueDate) &&
       !Number.isNaN(new Date(`${dueDate}T00:00:00.000Z`).getTime()) &&
-      new Date(`${dueDate}T00:00:00.000Z`)
-        .toISOString()
-        .slice(0, 10) === dueDate;
+      new Date(`${dueDate}T00:00:00.000Z`).toISOString().slice(0, 10) ===
+        dueDate;
 
     if (!cleanName || cleanName.length > 100) {
       setError("Enter a friend's name (maximum 100 characters).");
@@ -427,6 +422,48 @@ export default function App() {
   const overdueCount = loans.filter((loan) => loan.isOverdue).length;
   const outstandingCount = loans.filter((loan) => !loan.isRepaid).length;
 
+  const handleUploadReceipt = async (loanId: string) => {
+    if (uploadingReceiptFor) return;
+
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission required",
+          "Allow photo library access to select a receipt.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets.length) {
+        return;
+      }
+
+      setUploadingReceiptFor(loanId);
+      setError("");
+
+      await uploadReceipt(loanId, result.assets[0]);
+      await loadDashboard();
+
+      setNotice("Receipt uploaded successfully.");
+      Alert.alert("Success", "Receipt uploaded successfully.");
+    } catch (error: any) {
+      const message = errorMessage(error, "Could not upload the receipt.");
+      setError(message);
+      Alert.alert("Upload failed", message);
+    } finally {
+      setUploadingReceiptFor(null);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
@@ -572,7 +609,9 @@ export default function App() {
                   style={styles.primaryButton}
                   onPress={() => setScreen("add-loan")}
                 >
-                  <Text style={styles.primaryButtonText}>Add your first loan</Text>
+                  <Text style={styles.primaryButtonText}>
+                    Add your first loan
+                  </Text>
                 </Pressable>
               </View>
             ) : (
@@ -601,7 +640,9 @@ export default function App() {
                     </View>
 
                     <View style={styles.loanAmountContainer}>
-                      <Text style={styles.loanAmount}>{money(loan.amount)}</Text>
+                      <Text style={styles.loanAmount}>
+                        {money(loan.amount)}
+                      </Text>
                       <View
                         style={[
                           styles.statusBadge,
@@ -632,17 +673,34 @@ export default function App() {
                     </View>
                   </View>
 
-                  {!loan.isRepaid && (
+                  <View style={styles.loanActions}>
                     <Pressable
-                      style={styles.repayButton}
-                      onPress={() => handleRepay(loan)}
-                      disabled={busy}
+                      style={[
+                        styles.receiptButton,
+                        uploadingReceiptFor === loan.id && styles.disabled,
+                      ]}
+                      onPress={() => handleUploadReceipt(loan.id)}
+                      disabled={busy || uploadingReceiptFor !== null}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Upload receipt for ${loan.friendName}`}
                     >
-                      <Text style={styles.repayButtonText}>
-                        Mark as repaid
-                      </Text>
+                      {uploadingReceiptFor === loan.id ? (
+                        <ActivityIndicator size="small" color={COLORS.primary} />
+                      ) : (
+                        <Text style={styles.receiptButtonText}>Upload receipt</Text>
+                      )}
                     </Pressable>
-                  )}
+
+                    {!loan.isRepaid && (
+                      <Pressable
+                        style={styles.repayButton}
+                        onPress={() => handleRepay(loan)}
+                        disabled={busy || uploadingReceiptFor !== null}
+                      >
+                        <Text style={styles.repayButtonText}>Mark as repaid</Text>
+                      </Pressable>
+                    )}
+                  </View>
                 </View>
               ))
             )}
@@ -865,7 +923,11 @@ const styles = StyleSheet.create({
   },
   tabText: { color: COLORS.muted, fontWeight: "600", fontSize: 13 },
   activeTabText: { color: COLORS.primary, fontWeight: "800" },
-  dashboardContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 30 },
+  dashboardContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 30,
+  },
   welcomeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -889,7 +951,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  summaryPrimary: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  summaryPrimary: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
   overdueSummary: { borderColor: "#F4D5D5" },
   summaryLabel: {
     color: COLORS.muted,
@@ -965,12 +1030,35 @@ const styles = StyleSheet.create({
   repaidText: { color: COLORS.green },
   overdueText: { color: COLORS.red },
   pendingText: { color: "#8B6200" },
-  repayButton: {
+  loanActions: {
+    marginTop: 12,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    marginTop: 14,
-    paddingTop: 12,
+    paddingTop: 10,
+    gap: 8,
+  },
+  receiptButton: {
+    minHeight: 38,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 9,
+    backgroundColor: COLORS.blueLight,
     alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-start",
+    minWidth: 130,
+  },
+  receiptButtonText: {
+    color: COLORS.primary,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  repayButton: {
+    minHeight: 38,
+    paddingVertical: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-start",
   },
   repayButtonText: { color: COLORS.primary, fontWeight: "700", fontSize: 13 },
   emptyCard: {

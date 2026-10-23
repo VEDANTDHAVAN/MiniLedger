@@ -1,5 +1,5 @@
-
 import { api } from "./api";
+import * as ImagePicker from "expo-image-picker";
 
 export interface Loan {
   id: string;
@@ -66,4 +66,33 @@ export async function createLoan(
 export async function repayLoan(id: string): Promise<Loan> {
   const response = await api.patch(`/loans/${id}/repay`);
   return response.data.data as Loan;
+}
+
+
+export async function uploadReceipt(
+  loanId: string,
+  image: ImagePicker.ImagePickerAsset
+): Promise<{ loanId: string; receiptImagePath: string }> {
+  const formData = new FormData();
+
+  formData.append(
+    "receipt",
+    {
+      uri: image.uri,
+      name: image.fileName ?? `receipt-${Date.now()}.jpg`,
+      type: image.mimeType ?? "image/jpeg",
+    } as any
+  );
+
+  const response = await api.post(
+    `/loans/${loanId}/receipt`,
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    }
+  );
+
+  return response.data.data;
 }

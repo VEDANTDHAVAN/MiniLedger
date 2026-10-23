@@ -23,6 +23,7 @@ model Loan {
   userId     String    @db.Uuid
   friendName String    @db.VarChar(100)
   amount     Decimal   @db.Decimal(12, 2)
+  receiptImagePath String? @db.VarChar(500)
   dueDate    DateTime  @db.Date
   isRepaid   Boolean   @default(false)
   repaidAt   DateTime?
