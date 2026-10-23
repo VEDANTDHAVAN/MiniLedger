@@ -11,9 +11,6 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-app.use("/api/auth", authRoutes);
-app.use("/api", loanRoutes);
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
 // API health check
 app.get("/api/health", (_req, res) => {
@@ -41,5 +38,9 @@ app.get("/api/health/db", async (_req, res) => {
     });
   }
 });
+
+app.use("/api/auth", authRoutes);
+app.use("/api", loanRoutes);
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
 export default app;
